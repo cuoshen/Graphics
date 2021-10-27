@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Experimental.Rendering.RenderGraphModule;
+using Unity.Collections;
 
 namespace UnityEngine.Rendering.HighDefinition
 {
@@ -8,6 +9,7 @@ namespace UnityEngine.Rendering.HighDefinition
     {
         HDBRGCallbacks m_HDBRGCallbacks;
         internal Material m_VisibilityMaterial;
+        internal GeometryPool m_GlobalGeoPool;
 
         struct VBufferOutput
         {
@@ -26,19 +28,22 @@ namespace UnityEngine.Rendering.HighDefinition
 
             public BRGInternalSRPConfig GetSRPConfig() => m_HDRenderPipeline.GetBRGSRPConfig();
 
+            public void OnAddRenderers(AddRendererParameters parameters) => m_HDRenderPipeline.OnAddRenderersForVBuffer(parameters);
+            public void OnRemoveRenderers(List<MeshRenderer> renderers) => m_HDRenderPipeline.OnRemoveRenderersForVBuffer(renderers);
             public void Dispose() => m_HDRenderPipeline.ShutdownVisibilityPass();
-            public Mesh ProcessMesh(Mesh inputMesh) => m_HDRenderPipeline.ProcessMeshForVBuffer(inputMesh);
-            public List<Material> ProcessMaterialList(List<Material> inputList) => m_HDRenderPipeline.ProcessMaterialListForVBuffer(inputList);
         }
 
         internal void InitializeVisibilityPass()
         {
             m_VisibilityMaterial = CoreUtils.CreateEngineMaterial(defaultResources.shaders.visibilityPS);
+            m_GlobalGeoPool = new GeometryPool(GeometryPoolDesc.NewDefault());
         }
 
         internal void ShutdownVisibilityPass()
         {
             CoreUtils.Destroy(m_VisibilityMaterial);
+            m_GlobalGeoPool.Dispose();
+            m_GlobalGeoPool = null;
             m_VisibilityMaterial = null;
         }
 
@@ -49,8 +54,16 @@ namespace UnityEngine.Rendering.HighDefinition
 
         internal BRGInternalSRPConfig GetBRGSRPConfig()
         {
+            var metadata = new NativeArray<AddedMetadataDesc>(1, Allocator.Temp);
+            metadata[0] = new AddedMetadataDesc()
+            {
+                name = HDShaderIDs._VisBufferInstanceData,
+                sizeInVec4s = 1
+            };
+
             return new BRGInternalSRPConfig()
             {
+                metadatas = metadata,
                 overrideMaterial = m_VisibilityMaterial
             };
         }
@@ -61,14 +74,50 @@ namespace UnityEngine.Rendering.HighDefinition
             public RendererListHandle rendererList;
         }
 
-        internal Mesh ProcessMeshForVBuffer(Mesh inputMesh)
+        internal void OnAddRenderersForVBuffer(AddRendererParameters parameters)
         {
-            return inputMesh;
+            var debugColors = new Vector4[]
+            {
+                new Vector4(0,0,1,1),
+                new Vector4(0,1,0,1),
+                new Vector4(1,0,0,1)
+            };
+
+            for (int i = 0; i < parameters.addedRenderers.Count; ++i)
+            {
+                AddedRendererInformation rendererInfo = parameters.addedRenderersInfo[i];
+                var meshFilter = rendererInfo.meshFilter;
+
+                //TODO handle out of memory case later.
+                m_GlobalGeoPool.Register(meshFilter.sharedMesh, out var _);
+
+                parameters.instanceBuffer[parameters.instanceBufferOffset + rendererInfo.instanceIndex] =
+                    debugColors[rendererInfo.instanceIndex % debugColors.Length];
+            }
+
+            //Send to gpu immediately. Its possible we could defer these copy commands
+            //but for now we do it immediately to avoid accessing possible data erased
+            m_GlobalGeoPool.SendGpuCommands();
         }
 
-        internal List<Material> ProcessMaterialListForVBuffer(List<Material> inputList)
+        internal void OnRemoveRenderersForVBuffer(List<MeshRenderer> renderers)
         {
-            return inputList;
+            if (m_GlobalGeoPool == null)
+                return;
+
+            foreach (var renderer in renderers)
+            {
+                var meshFilter = renderer.gameObject.GetComponent<MeshFilter>();
+                if (meshFilter == null)
+                    continue;
+
+                //TODO handle out of memory case later.
+                m_GlobalGeoPool.Unregister(meshFilter.sharedMesh);
+            }
+
+            //Send to gpu immediately. Its possible we could defer these copy commands
+            //but for now we do it immediately to avoid accessing possible data erased
+            m_GlobalGeoPool.SendGpuCommands();
         }
 
         void RenderVBuffer(RenderGraph renderGraph, HDCamera hdCamera, CullingResults cull, ref PrepassOutput output)

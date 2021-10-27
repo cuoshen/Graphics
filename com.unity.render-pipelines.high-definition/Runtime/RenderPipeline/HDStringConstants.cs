@@ -1021,6 +1021,9 @@ namespace UnityEngine.Rendering.HighDefinition
         public static readonly int _SrcMip = Shader.PropertyToID("_SrcMip");
         public static readonly int _SrcScale = Shader.PropertyToID("_SrcScale");
         public static readonly int _SrcOffset = Shader.PropertyToID("_SrcOffset");
+
+        //Visibility material
+        public static readonly int _VisBufferInstanceData = Shader.PropertyToID("_VisBufferInstanceData");
     }
 
     /// <summary>

@@ -1,9 +1,14 @@
 Shader "HDRP/Visibility"
 {
+    Properties
+    {
+        _VisBufferInstanceData ("", Vector) = (1.0, 1.0, 1.0, 1.0)
+    }
+
     HLSLINCLUDE
 
     #pragma target 4.5
-    //#pragma enable_d3d11_debug_symbols
+    #pragma enable_d3d11_debug_symbols
 
     //-------------------------------------------------------------------------------------
     // Variant

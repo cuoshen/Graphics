@@ -474,6 +474,8 @@ namespace UnityEngine.Rendering
             m_drawRanges = new NativeList<DrawRange>(Allocator.Persistent);
             m_AddedRenderers = new List<MeshRenderer>(renderers.Count);
 
+            BRGInternalSRPConfig srpConfig = m_SRPCallbacks != null ?  m_SRPCallbacks.GetSRPConfig() : BRGInternalSRPConfig.NewDefault();
+
             // Fill the GPU-persistent scene data ComputeBuffer
             int bigDataBufferVector4Count =
                 4 /*zero*/
@@ -482,7 +484,15 @@ namespace UnityEngine.Rendering
                 + 7 * m_renderers.Length /*per renderer SH*/
                 + 1 * m_renderers.Length /*per renderer probe occlusion*/
                 + 2 * m_renderers.Length /* per renderer lightmapindex + scale/offset*/
-                + m_renderers.Length * 3 * 2 /*per renderer 4x3 matrix+inverse*/;
+                + m_renderers.Length * 3 * 2; /*per renderer 4x3 matrix+inverse*/
+
+            //add any metadata extra if found
+            if (srpConfig.metadatas.IsCreated)
+            {
+                for (int i = 0; i < srpConfig.metadatas.Length; ++i)
+                    bigDataBufferVector4Count += m_renderers.Length * srpConfig.metadatas[i].sizeInVec4s;
+            }
+
             var vectorBuffer = new NativeArray<Vector4>(bigDataBufferVector4Count, Allocator.Temp);
 
             // First 4xfloat4 of ComputeBuffer needed to be zero filled for default property fall back!
@@ -509,6 +519,7 @@ namespace UnityEngine.Rendering
             var lightMapScaleOffset = lightMapIndexOffset + m_renderers.Length;
             var localToWorldOffset = lightMapScaleOffset + m_renderers.Length;
             var worldToLocalOffset = localToWorldOffset + m_renderers.Length * 3;
+            var SRPOffset = worldToLocalOffset + m_renderers.Length * 3;
 
             m_instances = new NativeList<DrawInstance>(1024, Allocator.Persistent);
 
@@ -519,7 +530,9 @@ namespace UnityEngine.Rendering
 
             LightProbesQuery lpq = new LightProbesQuery(Allocator.Temp);
 
-            for (int i = 0; i < renderers.Count; i++)
+            List<AddedRendererInformation> addedRenderersInfo = new List<AddedRendererInformation>();
+
+            for (int i = 0; i < renderers.Count; ++i)
             {
                 var renderer = renderers[i];
 
@@ -535,6 +548,11 @@ namespace UnityEngine.Rendering
                 }
 
                 m_AddedRenderers.Add(renderer);
+                addedRenderersInfo.Add(new AddedRendererInformation()
+                {
+                    instanceIndex = i,
+                    meshFilter = meshFilter
+                });
 
                 // Disable the existing Unity MeshRenderer to avoid double rendering!
                 renderer.forceRenderingOff = true;
@@ -617,6 +635,7 @@ namespace UnityEngine.Rendering
                     if (!rendererMaterialInfos.TryGetValue(new Tuple<Renderer, int>(renderer, matIndex), out matToUse))
                         matToUse = sharedMaterials[matIndex];
 
+                    matToUse = srpConfig.overrideMaterial != null ? srpConfig.overrideMaterial : matToUse;
                     var material = m_BatchRendererGroup.RegisterMaterial(matToUse);
 
                     var flags = BatchDrawCommandFlags.None;
@@ -658,6 +677,15 @@ namespace UnityEngine.Rendering
                     m_drawBatches[drawBatchIndex] = drawBatch;
                 }
             }
+
+            m_SRPCallbacks?.OnAddRenderers(new AddRendererParameters()
+            {
+                addedRenderers = m_AddedRenderers,
+                addedRenderersInfo = addedRenderersInfo,
+                instanceBuffer = vectorBuffer,
+                instanceBufferOffset = SRPOffset
+            });
+
 
             m_GPUPersistentInstanceData =
                 new GraphicsBuffer(GraphicsBuffer.Target.Raw, (int)bigDataBufferVector4Count * 16 / 4, 4);
@@ -747,7 +775,7 @@ namespace UnityEngine.Rendering
             int SHBbID = Shader.PropertyToID("unity_SHBb");
             int SHCID = Shader.PropertyToID("unity_SHC");
 
-            var batchMetadata = new NativeArray<MetadataValue>(13, Allocator.Temp);
+            var batchMetadata = new NativeArray<MetadataValue>(13 + (srpConfig.metadatas.IsCreated ? srpConfig.metadatas.Length : 0), Allocator.Temp);
             batchMetadata[0] = CreateMetadataValue(objectToWorldID, localToWorldOffset * UnsafeUtility.SizeOf<Vector4>(), true);
             batchMetadata[1] = CreateMetadataValue(worldToObjectID, worldToLocalOffset * UnsafeUtility.SizeOf<Vector4>(), true);
             batchMetadata[2] = CreateMetadataValue(lightmapSTID, lightMapScaleOffset * UnsafeUtility.SizeOf<Vector4>(), true);
@@ -761,6 +789,17 @@ namespace UnityEngine.Rendering
             batchMetadata[10] = CreateMetadataValue(SHBgID, SHBgOffset * UnsafeUtility.SizeOf<Vector4>(), true);
             batchMetadata[11] = CreateMetadataValue(SHBbID, SHBbOffset * UnsafeUtility.SizeOf<Vector4>(), true);
             batchMetadata[12] = CreateMetadataValue(SHCID, SHCOffset * UnsafeUtility.SizeOf<Vector4>(), true);
+
+            if (srpConfig.metadatas.IsCreated)
+            {
+                int offset = SRPOffset;
+                for (int i = 0; i < srpConfig.metadatas.Length; ++i)
+                {
+                    AddedMetadataDesc metadataDesc = srpConfig.metadatas[i];
+                    batchMetadata[12 + i] = CreateMetadataValue(metadataDesc.name, offset * UnsafeUtility.SizeOf<Vector4>(), true);
+                    offset += m_renderers.Length * metadataDesc.sizeInVec4s;
+                }
+            }
 
             // Register batch
             m_batchID = m_BatchRendererGroup.AddBatch(batchMetadata, m_GPUPersistentInstanceData.bufferHandle);
@@ -798,6 +837,8 @@ namespace UnityEngine.Rendering
                     if (added != null)
                         added.forceRenderingOff = false;
                 }
+
+                m_SRPCallbacks?.OnRemoveRenderers(m_AddedRenderers);
             }
         }
     }
