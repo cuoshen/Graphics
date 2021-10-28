@@ -257,7 +257,26 @@ namespace UnityEngine.Rendering
         }
 
         /// <summary>
-        /// Blit a RThandle Texture2D RTHandle to another RTHandle.
+        /// Blit a RTHandle to another RTHandle.
+        /// This will properly account for partial usage (in term of resolution) of the texture for the current viewport.
+        /// </summary>
+        /// <param name="cmd">Command Buffer used for rendering.</param>
+        /// <param name="source">Source RTHandle.</param>
+        /// <param name="destination">Destination RTHandle.</param>
+        /// <param name="loadAction">Destination load action.</param>
+        /// <param name="storeAction">Destination store action.</param>
+        /// <param name="mipLevel">Mip level to blit.</param>
+        /// <param name="bilinear">Enable bilinear filtering.</param>
+        public static void BlitCameraTexture(CommandBuffer cmd, RTHandle source, RTHandle destination, RenderBufferLoadAction loadAction, RenderBufferStoreAction storeAction, float mipLevel = 0.0f, bool bilinear = false)
+        {
+            Vector2 viewportScale = new Vector2(source.rtHandleProperties.rtHandleScale.x, source.rtHandleProperties.rtHandleScale.y);
+            // Will set the correct camera viewport as well.
+            CoreUtils.SetRenderTarget(cmd, destination, loadAction, storeAction, ClearFlag.None, Color.clear);
+            BlitTexture(cmd, source, viewportScale, mipLevel, bilinear);
+        }
+
+        /// <summary>
+        /// Blit a RTHandle Texture2D RTHandle to another RTHandle.
         /// This will properly account for partial usage (in term of resolution) of the texture for the current viewport.
         /// </summary>
         /// <param name="cmd">Command Buffer used for rendering.</param>
@@ -270,6 +289,25 @@ namespace UnityEngine.Rendering
             Vector2 viewportScale = new Vector2(source.rtHandleProperties.rtHandleScale.x, source.rtHandleProperties.rtHandleScale.y);
             // Will set the correct camera viewport as well.
             CoreUtils.SetRenderTarget(cmd, destination);
+            BlitTexture2D(cmd, source, viewportScale, mipLevel, bilinear);
+        }
+
+        /// <summary>
+        /// Blit a RTHandle Texture2D RTHandle to another RTHandle.
+        /// This will properly account for partial usage (in term of resolution) of the texture for the current viewport.
+        /// </summary>
+        /// <param name="cmd">Command Buffer used for rendering.</param>
+        /// <param name="source">Source RTHandle.</param>
+        /// <param name="destination">Destination RTHandle.</param>
+        /// <param name="loadAction">Destination load action.</param>
+        /// <param name="storeAction">Destination store action.</param>
+        /// <param name="mipLevel">Mip level to blit.</param>
+        /// <param name="bilinear">Enable bilinear filtering.</param>
+        public static void BlitCameraTexture2D(CommandBuffer cmd, RTHandle source, RTHandle destination, RenderBufferLoadAction loadAction, RenderBufferStoreAction storeAction, float mipLevel = 0.0f, bool bilinear = false)
+        {
+            Vector2 viewportScale = new Vector2(source.rtHandleProperties.rtHandleScale.x, source.rtHandleProperties.rtHandleScale.y);
+            // Will set the correct camera viewport as well.
+            CoreUtils.SetRenderTarget(cmd, destination, loadAction, storeAction, ClearFlag.None, Color.clear);
             BlitTexture2D(cmd, source, viewportScale, mipLevel, bilinear);
         }
 
@@ -294,6 +332,26 @@ namespace UnityEngine.Rendering
         /// <summary>
         /// Blit a RTHandle to another RTHandle.
         /// This will properly account for partial usage (in term of resolution) of the texture for the current viewport.
+        /// This overloads allows the user to override the default blit shader
+        /// </summary>
+        /// <param name="cmd">Command Buffer used for rendering.</param>
+        /// <param name="source">Source RTHandle.</param>
+        /// <param name="destination">Destination RTHandle.</param>
+        /// <param name="loadAction">Destination load action.</param>
+        /// <param name="storeAction">Destination store action.</param>
+        /// <param name="material">The material to use when blitting</param>
+        /// <param name="pass">pass to use of the provided material</param>
+        public static void BlitCameraTexture(CommandBuffer cmd, RTHandle source, RTHandle destination, RenderBufferLoadAction loadAction, RenderBufferStoreAction storeAction, Material material, int pass)
+        {
+            Vector2 viewportScale = new Vector2(source.rtHandleProperties.rtHandleScale.x, source.rtHandleProperties.rtHandleScale.y);
+            // Will set the correct camera viewport as well.
+            CoreUtils.SetRenderTarget(cmd, destination, loadAction, storeAction, ClearFlag.None, Color.clear);
+            BlitTexture(cmd, source, viewportScale, material, pass);
+        }
+
+        /// <summary>
+        /// Blit a RTHandle to another RTHandle.
+        /// This will properly account for partial usage (in term of resolution) of the texture for the current viewport.
         /// This overload allows user to override the scale and bias used when sampling the input RTHandle.
         /// </summary>
         /// <param name="cmd">Command Buffer used for rendering.</param>
@@ -312,6 +370,26 @@ namespace UnityEngine.Rendering
         /// <summary>
         /// Blit a RTHandle to another RTHandle.
         /// This will properly account for partial usage (in term of resolution) of the texture for the current viewport.
+        /// This overload allows user to override the scale and bias used when sampling the input RTHandle.
+        /// </summary>
+        /// <param name="cmd">Command Buffer used for rendering.</param>
+        /// <param name="source">Source RTHandle.</param>
+        /// <param name="destination">Destination RTHandle.</param>
+        /// <param name="loadAction">Destination load action.</param>
+        /// <param name="storeAction">Destination store action.</param>
+        /// <param name="scaleBias">Scale and bias used to sample the input RTHandle.</param>
+        /// <param name="mipLevel">Mip level to blit.</param>
+        /// <param name="bilinear">Enable bilinear filtering.</param>
+        public static void BlitCameraTexture(CommandBuffer cmd, RTHandle source, RTHandle destination, RenderBufferLoadAction loadAction, RenderBufferStoreAction storeAction, Vector4 scaleBias, float mipLevel = 0.0f, bool bilinear = false)
+        {
+            // Will set the correct camera viewport as well.
+            CoreUtils.SetRenderTarget(cmd, destination, loadAction, storeAction, ClearFlag.None, Color.clear);
+            BlitTexture(cmd, source, scaleBias, mipLevel, bilinear);
+        }
+
+        /// <summary>
+        /// Blit a RTHandle to another RTHandle.
+        /// This will properly account for partial usage (in term of resolution) of the texture for the current viewport.
         /// This overload allows user to override the viewport of the destination RTHandle.
         /// </summary>
         /// <param name="cmd">Command Buffer used for rendering.</param>
@@ -324,6 +402,27 @@ namespace UnityEngine.Rendering
         {
             Vector2 viewportScale = new Vector2(source.rtHandleProperties.rtHandleScale.x, source.rtHandleProperties.rtHandleScale.y);
             CoreUtils.SetRenderTarget(cmd, destination);
+            cmd.SetViewport(destViewport);
+            BlitTexture(cmd, source, viewportScale, mipLevel, bilinear);
+        }
+
+        /// <summary>
+        /// Blit a RTHandle to another RTHandle.
+        /// This will properly account for partial usage (in term of resolution) of the texture for the current viewport.
+        /// This overload allows user to override the viewport of the destination RTHandle.
+        /// </summary>
+        /// <param name="cmd">Command Buffer used for rendering.</param>
+        /// <param name="source">Source RTHandle.</param>
+        /// <param name="destination">Destination RTHandle.</param>
+        /// <param name="loadAction">Destination load action.</param>
+        /// <param name="storeAction">Destination store action.</param>
+        /// <param name="destViewport">Viewport of the destination RTHandle.</param>
+        /// <param name="mipLevel">Mip level to blit.</param>
+        /// <param name="bilinear">Enable bilinear filtering.</param>
+        public static void BlitCameraTexture(CommandBuffer cmd, RTHandle source, RTHandle destination, RenderBufferLoadAction loadAction, RenderBufferStoreAction storeAction, Rect destViewport, float mipLevel = 0.0f, bool bilinear = false)
+        {
+            Vector2 viewportScale = new Vector2(source.rtHandleProperties.rtHandleScale.x, source.rtHandleProperties.rtHandleScale.y);
+            CoreUtils.SetRenderTarget(cmd, destination, loadAction, storeAction, ClearFlag.None, Color.clear);
             cmd.SetViewport(destViewport);
             BlitTexture(cmd, source, viewportScale, mipLevel, bilinear);
         }
