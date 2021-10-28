@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.CompilerServices;
+using UnityEngine.Assertions;
 using UnityEngine.Experimental.Rendering;
 
 namespace UnityEngine.Rendering.Universal
@@ -509,14 +510,12 @@ namespace UnityEngine.Rendering.Universal.Internal
                     m_Materials.uber.EnableKeyword(ShaderKeywordStrings.LinearToSRGBConversion);
 
                 // When we're running FSR upscaling and there's no passes after this (including the FXAA pass), we can safely perform color conversion as part of uber post
-                bool doEarlyFsrColorConversion =
-                    (cameraData.upscalingFilter == UpscalingFilter.FSR) &&
-                    (cameraData.renderScale < 1.0f)                 &&
-                    !m_hasUserPostProcessingPasses                  &&
-                    (cameraData.antialiasing != AntialiasingMode.FastApproximateAntialiasing);
+                bool doEarlyFsrColorConversion = (!m_hasUserPostProcessingPasses &&
+                                                  (((cameraData.renderScale < 1.0f) && (cameraData.upscalingFilter == UpscalingFilter.FSR)) &&
+                                                   (cameraData.antialiasing != AntialiasingMode.FastApproximateAntialiasing)));
                 if (doEarlyFsrColorConversion)
                 {
-                    m_Materials.uber.EnableKeyword(ShaderKeywordStrings.FSR);
+                    m_Materials.uber.EnableKeyword(ShaderKeywordStrings.Gamma20);
                 }
 
                 if (m_UseFastSRGBLinearConversion)
@@ -1390,11 +1389,51 @@ namespace UnityEngine.Rendering.Universal.Internal
             var colorLoadAction = cameraData.isDefaultViewport ? RenderBufferLoadAction.DontCare : RenderBufferLoadAction.Load;
 
             bool isUpscaling = (cameraData.renderScale < 1.0f);
-            bool fsrTextureUsed = false;
+            bool isUpscaleSetupTextureAllocated = false;
+            bool isUpscaleTextureAllocated = false;
             bool fxaaHandled = false;
 
             if (isUpscaling)
             {
+                // FXAA is performed earlier in the post processing pipeline whenever upscaling is active
+                fxaaHandled = true;
+
+                // Make sure to remove any MSAA and attached depth buffers from the temporary render targets
+                var tempRtDesc = cameraData.cameraTargetDescriptor;
+                tempRtDesc.msaaSamples = 1;
+                tempRtDesc.depthBufferBits = 0;
+
+                var sourceRtId = m_Source.nameID;
+
+                bool isFxaaEnabled = (cameraData.antialiasing == AntialiasingMode.FastApproximateAntialiasing);
+                bool isFsrSlowPath = ((cameraData.upscalingFilter == UpscalingFilter.FSR) && (isFxaaEnabled || m_hasUserPostProcessingPasses));
+
+                bool isSetupRequired = (isFxaaEnabled || isFsrSlowPath);
+
+                if (isSetupRequired)
+                {
+                    isUpscaleSetupTextureAllocated = true;
+
+                    m_Materials.upscaleSetup.shaderKeywords = null;
+
+                    if (isFxaaEnabled)
+                    {
+                        m_Materials.upscaleSetup.EnableKeyword(ShaderKeywordStrings.Fxaa);
+                    }
+
+                    if (isFsrSlowPath)
+                    {
+                        m_Materials.upscaleSetup.EnableKeyword(ShaderKeywordStrings.Gamma20);
+                    }
+
+                    cmd.GetTemporaryRT(ShaderConstants._UpscaleSetupTexture, tempRtDesc, FilterMode.Bilinear);
+                    var tempSetupRtId = new RenderTargetIdentifier(ShaderConstants._UpscaleSetupTexture);
+                    Blit(cmd, sourceRtId, tempSetupRtId, m_Materials.upscaleSetup);
+
+                    sourceRtId = tempSetupRtId;
+                    cmd.SetGlobalTexture(ShaderPropertyId.sourceTex, tempSetupRtId);
+                }
+
                 switch (cameraData.upscalingFilter)
                 {
                     case UpscalingFilter.Point:
@@ -1410,56 +1449,23 @@ namespace UnityEngine.Rendering.Universal.Internal
                     case UpscalingFilter.FSR:
                     {
                         // The FSR implementation always requires intermediate upscaling textures
-                        fsrTextureUsed = true;
-
-                        // The FSR implementation moves FXAA earlier in the post processing pipeline since all AA should be peformed before running FSR
-                        fxaaHandled = true;
-
-                        bool doSetupPass = m_hasUserPostProcessingPasses || (cameraData.antialiasing == AntialiasingMode.FastApproximateAntialiasing);
+                        isUpscaleTextureAllocated = true;
 
                         using (new ProfilingScope(cmd, ProfilingSampler.Get(URPProfileId.FSR)))
                         {
-                            // Make sure to remove any MSAA and attached depth buffers from the temporary render targets
-                            var tempRtDesc = cameraData.cameraTargetDescriptor;
-                            tempRtDesc.msaaSamples = 1;
-                            tempRtDesc.depthBufferBits = 0;
-
                             m_Materials.fsr.shaderKeywords = null;
-
-                            // FXAA is performed during the setup pass when FSR is enabled
-                            if (cameraData.antialiasing == AntialiasingMode.FastApproximateAntialiasing)
-                            {
-                                m_Materials.fsr.EnableKeyword("_FXAA");
-                            }
-
-                            var sourceRtId = m_Source.nameID;
-
-                            if (doSetupPass)
-                            {
-                                // Setup
-                                cmd.GetTemporaryRT(ShaderConstants._FSRSetupTexture, tempRtDesc, FilterMode.Bilinear);
-                                var tempSetupRtId = new RenderTargetIdentifier(ShaderConstants._FSRSetupTexture);
-                                Blit(cmd, sourceRtId, tempSetupRtId, m_Materials.fsr, 0);
-
-                                sourceRtId = tempSetupRtId;
-                            }
 
                             var upscaleRtDesc = tempRtDesc;
                             upscaleRtDesc.width = cameraData.pixelWidth;
                             upscaleRtDesc.height = cameraData.pixelHeight;
 
                             // EASU
-                            cmd.GetTemporaryRT(ShaderConstants._FSREasuTexture, upscaleRtDesc, FilterMode.Bilinear);
-                            var upscaleRtId = new RenderTargetIdentifier(ShaderConstants._FSREasuTexture);
+                            cmd.GetTemporaryRT(ShaderConstants._UpscaleTexture, upscaleRtDesc, FilterMode.Bilinear);
+                            var upscaleRtId = new RenderTargetIdentifier(ShaderConstants._UpscaleTexture);
                             var fsrInputSize = new Vector2(cameraData.cameraTargetDescriptor.width, cameraData.cameraTargetDescriptor.height);
                             var fsrOutputSize = new Vector2(cameraData.pixelWidth, cameraData.pixelHeight);
                             FSRUtils.SetEasuConstants(cmd, fsrInputSize, fsrInputSize, fsrOutputSize);
-                            Blit(cmd, sourceRtId, upscaleRtId, m_Materials.fsr, 1);
-
-                            if (doSetupPass)
-                            {
-                                cmd.ReleaseTemporaryRT(ShaderConstants._FSRSetupTexture);
-                            }
+                            Blit(cmd, sourceRtId, upscaleRtId, m_Materials.fsr, 0);
 
                             // RCAS
                             // RCAS is performed during the final post blit but we set up the parameters here
@@ -1520,9 +1526,14 @@ namespace UnityEngine.Rendering.Universal.Internal
 #pragma warning restore 0618
             }
 
-            if (fsrTextureUsed)
+            if (isUpscaleSetupTextureAllocated)
             {
-                cmd.ReleaseTemporaryRT(ShaderConstants._FSREasuTexture);
+                cmd.ReleaseTemporaryRT(ShaderConstants._UpscaleSetupTexture);
+            }
+
+            if (isUpscaleTextureAllocated)
+            {
+                cmd.ReleaseTemporaryRT(ShaderConstants._UpscaleTexture);
             }
         }
 
@@ -1539,6 +1550,7 @@ namespace UnityEngine.Rendering.Universal.Internal
             public readonly Material cameraMotionBlur;
             public readonly Material paniniProjection;
             public readonly Material bloom;
+            public readonly Material upscaleSetup;
             public readonly Material fsr;
             public readonly Material uber;
             public readonly Material finalPass;
@@ -1553,6 +1565,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                 cameraMotionBlur = Load(data.shaders.cameraMotionBlurPS);
                 paniniProjection = Load(data.shaders.paniniProjectionPS);
                 bloom = Load(data.shaders.bloomPS);
+                upscaleSetup = Load(data.shaders.upscaleSetupPs);
                 fsr = Load(data.shaders.fsrPS);
                 uber = Load(data.shaders.uberPostPS);
                 finalPass = Load(data.shaders.finalPostPassPS);
@@ -1583,6 +1596,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                 CoreUtils.Destroy(cameraMotionBlur);
                 CoreUtils.Destroy(paniniProjection);
                 CoreUtils.Destroy(bloom);
+                CoreUtils.Destroy(upscaleSetup);
                 CoreUtils.Destroy(fsr);
                 CoreUtils.Destroy(uber);
                 CoreUtils.Destroy(finalPass);
@@ -1646,10 +1660,8 @@ namespace UnityEngine.Rendering.Universal.Internal
 
             public static readonly int _FullscreenProjMat = Shader.PropertyToID("_FullscreenProjMat");
 
+            public static readonly int _UpscaleSetupTexture = Shader.PropertyToID("_UpscaleSetupTexture");
             public static readonly int _UpscaleTexture = Shader.PropertyToID("_UpscaleTexture");
-
-            public static readonly int _FSRSetupTexture = Shader.PropertyToID("_FSRSetupTexture");
-            public static readonly int _FSREasuTexture = Shader.PropertyToID("_FSREasuTexture");
 
             public static int[] _BloomMipUp;
             public static int[] _BloomMipDown;
