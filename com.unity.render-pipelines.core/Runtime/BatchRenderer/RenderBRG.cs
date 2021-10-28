@@ -457,6 +457,52 @@ namespace UnityEngine.Rendering
             return jobHandleOutput;
         }
 
+        private void RegisterBatchDrawInstance(
+            Material matToUse, BatchMeshID mesh, Transform transform,
+            int drawRangeIndex, ref DrawRange drawRange,
+            int instanceIndex, int submeshIndex)
+        {
+            var material = m_BatchRendererGroup.RegisterMaterial(matToUse);
+            
+            var flags = BatchDrawCommandFlags.None;
+            
+            bool flipWinding = math.determinant(transform.localToWorldMatrix) < 0.0;
+            
+            if (flipWinding)
+                flags |= BatchDrawCommandFlags.FlipWinding;
+            
+            var key = new DrawKey
+            {
+                material = material,
+                meshID = mesh,
+                submeshIndex = (uint)submeshIndex,
+                flags = flags,
+                range = drawRange.key
+            };
+            
+            var drawBatch = new DrawBatch {key = key, instanceCount = 0, instanceOffset = 0};
+            
+            m_instances.Add(new DrawInstance {key = key, instanceIndex = instanceIndex});
+            
+            int drawBatchIndex;
+            if (m_batchHash.TryGetValue(key, out drawBatchIndex))
+            {
+                drawBatch = m_drawBatches[drawBatchIndex];
+            }
+            else
+            {
+                drawBatchIndex = m_drawBatches.Length;
+                m_drawBatches.Add(drawBatch);
+                m_batchHash[key] = drawBatchIndex;
+            
+                drawRange.drawCount++;
+                m_drawRanges[drawRangeIndex] = drawRange;
+            }
+            
+            drawBatch.instanceCount++;
+            m_drawBatches[drawBatchIndex] = drawBatch;
+        }
+
         // Start is called before the first frame update
         public void Initialize(List<MeshRenderer> renderers)
         {
@@ -475,6 +521,8 @@ namespace UnityEngine.Rendering
             m_AddedRenderers = new List<MeshRenderer>(renderers.Count);
 
             BRGInternalSRPConfig srpConfig = m_SRPCallbacks != null ?  m_SRPCallbacks.GetSRPConfig() : BRGInternalSRPConfig.NewDefault();
+
+            BatchMeshID overrideMeshID = srpConfig.overrideMesh == null ? BatchMeshID.Null : m_BatchRendererGroup.RegisterMesh(srpConfig.overrideMesh);
 
             // Fill the GPU-persistent scene data ComputeBuffer
             int bigDataBufferVector4Count =
@@ -553,6 +601,22 @@ namespace UnityEngine.Rendering
                     instanceIndex = i,
                     meshFilter = meshFilter
                 });
+            }
+
+            m_SRPCallbacks?.OnAddRenderers(new AddRendererParameters()
+            {
+                addedRenderers = m_AddedRenderers,
+                addedRenderersInfo = addedRenderersInfo,
+                instanceBuffer = vectorBuffer,
+                instanceBufferOffset = SRPOffset
+            });
+
+            for (int addedIndex = 0; addedIndex < m_AddedRenderers.Count; ++addedIndex)
+            {
+                AddedRendererInformation addedRendererInfo = addedRenderersInfo[addedIndex];
+                var renderer = m_AddedRenderers[addedIndex];
+                int i = addedRendererInfo.instanceIndex;
+                var meshFilter = addedRendererInfo.meshFilter;
 
                 // Disable the existing Unity MeshRenderer to avoid double rendering!
                 renderer.forceRenderingOff = true;
@@ -599,7 +663,7 @@ namespace UnityEngine.Rendering
                 var transformedBounds = AABB.Transform(m, meshFilter.sharedMesh.bounds.ToAABB());
                 m_renderers[i] = new DrawRenderer {bounds = transformedBounds};
 
-                var mesh = m_BatchRendererGroup.RegisterMesh(meshFilter.sharedMesh);
+                var mesh = overrideMeshID == BatchMeshID.Null ? m_BatchRendererGroup.RegisterMesh(meshFilter.sharedMesh) : overrideMeshID;
 
                 // Different renderer settings? -> new draw range
                 var rangeKey = new RangeKey
@@ -629,63 +693,35 @@ namespace UnityEngine.Rendering
                 var sharedMaterials = new List<Material>();
                 renderer.GetSharedMaterials(sharedMaterials);
                 var startSubMesh = renderer.subMeshStartIndex;
-                for (int matIndex = 0; matIndex < sharedMaterials.Count; matIndex++)
+                if (srpConfig.overrideMaterial != null && srpConfig.overrideMesh != null)
                 {
-                    Material matToUse;
-                    if (!rendererMaterialInfos.TryGetValue(new Tuple<Renderer, int>(renderer, matIndex), out matToUse))
-                        matToUse = sharedMaterials[matIndex];
-
-                    matToUse = srpConfig.overrideMaterial != null ? srpConfig.overrideMaterial : matToUse;
-                    var material = m_BatchRendererGroup.RegisterMaterial(matToUse);
-
-                    var flags = BatchDrawCommandFlags.None;
-
-                    bool flipWinding = math.determinant(renderer.transform.localToWorldMatrix) < 0.0;
-
-                    if (flipWinding)
-                        flags |= BatchDrawCommandFlags.FlipWinding;
-
-                    var key = new DrawKey
+                    int submeshIndex = m_SRPCallbacks != null ?
+                    m_SRPCallbacks.OnSubmeshIndexForOverrides(new SubmeshIndexForOverridesParams()
                     {
-                        material = material,
-                        meshID = mesh,
-                        submeshIndex = (uint)(matIndex + startSubMesh),
-                        flags = flags,
-                        range = rangeKey
-                    };
+                        instanceBufferOffset = SRPOffset,
+                        instanceBuffer = vectorBuffer,
+                        renderer = renderer,
+                        rendererInfo = addedRendererInfo
+                    }) : 0;
 
-                    var drawBatch = new DrawBatch {key = key, instanceCount = 0, instanceOffset = 0};
-
-                    m_instances.Add(new DrawInstance {key = key, instanceIndex = i});
-
-                    int drawBatchIndex;
-                    if (m_batchHash.TryGetValue(key, out drawBatchIndex))
+                    RegisterBatchDrawInstance(srpConfig.overrideMaterial, mesh, renderer.transform, 
+                        drawRangeIndex, ref drawRange, i, submeshIndex);
+                }
+                else
+                {
+                    for (int matIndex = 0; matIndex < sharedMaterials.Count; matIndex++)
                     {
-                        drawBatch = m_drawBatches[drawBatchIndex];
+                        Material matToUse;
+                        if (!rendererMaterialInfos.TryGetValue(new Tuple<Renderer, int>(renderer, matIndex), out matToUse))
+                            matToUse = sharedMaterials[matIndex];
+
+                        matToUse = srpConfig.overrideMaterial != null ? srpConfig.overrideMaterial : matToUse;
+
+                        RegisterBatchDrawInstance(matToUse, mesh, renderer.transform, 
+                            drawRangeIndex, ref drawRange, i, matIndex + startSubMesh);
                     }
-                    else
-                    {
-                        drawBatchIndex = m_drawBatches.Length;
-                        m_drawBatches.Add(drawBatch);
-                        m_batchHash[key] = drawBatchIndex;
-
-                        drawRange.drawCount++;
-                        m_drawRanges[drawRangeIndex] = drawRange;
-                    }
-
-                    drawBatch.instanceCount++;
-                    m_drawBatches[drawBatchIndex] = drawBatch;
                 }
             }
-
-            m_SRPCallbacks?.OnAddRenderers(new AddRendererParameters()
-            {
-                addedRenderers = m_AddedRenderers,
-                addedRenderersInfo = addedRenderersInfo,
-                instanceBuffer = vectorBuffer,
-                instanceBufferOffset = SRPOffset
-            });
-
 
             m_GPUPersistentInstanceData =
                 new GraphicsBuffer(GraphicsBuffer.Target.Raw, (int)bigDataBufferVector4Count * 16 / 4, 4);

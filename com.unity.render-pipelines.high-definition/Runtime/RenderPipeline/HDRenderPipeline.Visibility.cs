@@ -30,6 +30,7 @@ namespace UnityEngine.Rendering.HighDefinition
 
             public void OnAddRenderers(AddRendererParameters parameters) => m_HDRenderPipeline.OnAddRenderersForVBuffer(parameters);
             public void OnRemoveRenderers(List<MeshRenderer> renderers) => m_HDRenderPipeline.OnRemoveRenderersForVBuffer(renderers);
+            public int OnSubmeshIndexForOverrides(SubmeshIndexForOverridesParams parameters) => m_HDRenderPipeline.OnSubmeshIndexForOverridesVBuffer(parameters);
             public void Dispose() => m_HDRenderPipeline.ShutdownVisibilityPass();
         }
 
@@ -64,6 +65,7 @@ namespace UnityEngine.Rendering.HighDefinition
             return new BRGInternalSRPConfig()
             {
                 metadatas = metadata,
+                overrideMesh = m_GlobalGeoPool.globalMesh,
                 overrideMaterial = m_VisibilityMaterial
             };
         }
@@ -119,15 +121,22 @@ namespace UnityEngine.Rendering.HighDefinition
             m_GlobalGeoPool.SendGpuCommands();
         }
 
+        internal int OnSubmeshIndexForOverridesVBuffer(SubmeshIndexForOverridesParams parameters)
+        {
+            return (int)parameters.instanceBuffer[parameters.instanceBufferOffset + parameters.rendererInfo.instanceIndex].x;
+        }
+
         void RenderVBuffer(RenderGraph renderGraph, HDCamera hdCamera, CullingResults cull, ref PrepassOutput output)
         {
             output.vbuffer = new VBufferOutput();
 
             if (!IsVisibilityPassEnabled())
             {
+                output.vbuffer.vbuffer = renderGraph.defaultResources.blackUIntTextureXR;
                 return;
             }
 
+            var visFormat = GraphicsFormat.R32_UInt;
             using (var builder = renderGraph.AddRenderPass<VBufferPassData>("VBuffer", out var passData, ProfilingSampler.Get(HDProfileId.VBuffer)))
             {
                 builder.AllowRendererListCulling(false);
@@ -140,7 +149,7 @@ namespace UnityEngine.Rendering.HighDefinition
                 output.vbuffer.vbuffer = builder.UseColorBuffer(renderGraph.CreateTexture(
                     new TextureDesc(Vector2.one, true, true)
                     {
-                        colorFormat = GraphicsFormat.R8G8B8A8_UNorm,
+                        colorFormat = visFormat,
                         clearBuffer = true,//TODO: for now clear
                         clearColor = Color.clear,
                         name = "VisibilityBuffer"
@@ -159,8 +168,6 @@ namespace UnityEngine.Rendering.HighDefinition
                         DrawOpaqueRendererList(context, data.frameSettings, data.rendererList);
                     });
             }
-
-            PushFullScreenDebugTexture(renderGraph, output.vbuffer.vbuffer, FullScreenDebugMode.VisibilityBuffer);
         }
     }
 }

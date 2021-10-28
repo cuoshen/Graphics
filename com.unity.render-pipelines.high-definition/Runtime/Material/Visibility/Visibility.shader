@@ -43,8 +43,9 @@ Shader "HDRP/Visibility"
             Name "VBuffer"
             Tags { "LightMode" = "VBuffer" } // This will be only for opaque object based on the RenderQueue index
 
-            Cull [Back]
-            ZTest [Greater]
+            Cull Back
+            ZTest Less
+            ZWrite On
 
             HLSLPROGRAM
 
@@ -54,7 +55,6 @@ Shader "HDRP/Visibility"
             #pragma instancing_options renderinglayer
             #pragma multi_compile _ DOTS_INSTANCING_ON
 
-            #define VISIBILITY_USE_ORIGINAL_MESH
             #include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/ShaderPass/ShaderPassVisibility.hlsl"
 
             #pragma vertex Vert

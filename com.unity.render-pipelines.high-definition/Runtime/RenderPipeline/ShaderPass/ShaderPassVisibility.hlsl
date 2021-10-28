@@ -2,14 +2,8 @@
 #define VISIBILITY_PASS_HLSL
 
 
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/Material/Visibility/Visibility.hlsl"
 #include "Packages/com.unity.render-pipelines.core/Runtime/GeometryPool/Resources/GeometryPool.hlsl"
-#include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/ShaderPass/VaryingMesh.hlsl"
-
-void ApplyVertexModification(AttributesMesh input, float3 normalWS, inout float3 positionRWS, float3 timeParameters)
-{
-}
-
-#include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/ShaderPass/VertMesh.hlsl"
 
 CBUFFER_START(UnityPerMaterial)
     float4 _VisBufferInstanceData;
@@ -33,27 +27,10 @@ struct GeoPoolInput
 struct VisibilityVtoP
 {
     float4 pos : SV_Position;
-    
+
     UNITY_VERTEX_INPUT_INSTANCE_ID
     UNITY_VERTEX_OUTPUT_STEREO
 };
-
-#ifdef VISIBILITY_USE_ORIGINAL_MESH
-
-VisibilityVtoP Vert(AttributesMesh inputMesh)
-{
-    VisibilityVtoP v2p;
-
-    UNITY_SETUP_INSTANCE_ID(inputMesh);
-    UNITY_TRANSFER_INSTANCE_ID(inputMesh, v2p);
-
-    VaryingsMeshToPS vmesh = VertMesh(inputMesh);
-    v2p.pos = vmesh.positionCS;
-
-    return v2p;
-}
-
-#else
 
 struct VisibilityDrawInput
 {
@@ -78,16 +55,20 @@ VisibilityVtoP Vert(VisibilityDrawInput input)
     return v2p;
 }
 
-#endif
-
-void Frag(VisibilityVtoP packedInput, out float4 outVisibility : SV_Target0)
+void Frag(
+    VisibilityVtoP packedInput,
+    uint primitiveID : SV_PrimitiveID,
+    out uint outVisibility : SV_Target0)
 {
     UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(packedInput);
     UNITY_SETUP_INSTANCE_ID(packedInput);
     #ifdef DOTS_INSTANCING_ON
-        outVisibility = float4(0, 0, 1, 0);
+        VisibilityData visData;
+        visData.DOTSInstanceIndex = GetDOTSInstanceIndex();
+        visData.primitiveID = primitiveID;
+        outVisibility = packVisibilityData(visData);
     #else
-        outVisibility = float4(1, 0, 0, 0);
+        outVisibility = InvalidVisibilityData;
     #endif
 }
 

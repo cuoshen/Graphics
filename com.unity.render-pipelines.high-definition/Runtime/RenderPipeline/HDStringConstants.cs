@@ -701,6 +701,9 @@ namespace UnityEngine.Rendering.HighDefinition
         public static readonly int _InputBufferDimension = Shader.PropertyToID("_InputBufferDimension");
         public static readonly int _OutputBufferDimension = Shader.PropertyToID("_OutputBufferDimension");
 
+        // Visibility Buffer
+        public static readonly int _VisibilityTexture = Shader.PropertyToID("_VisibilityTexture");
+
         // Primary Visibility
         public static readonly int _RaytracingFlagMask = Shader.PropertyToID("_RaytracingFlagMask");
         public static readonly int _RaytracingPrimaryDebug = Shader.PropertyToID("_RaytracingPrimaryDebug");
