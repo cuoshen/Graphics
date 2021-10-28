@@ -152,6 +152,11 @@ namespace UnityEngine.Rendering
         private int m_ParamOutputVB;
         private int m_ParamOutputGeoMetadataBuffer;
 
+        private int m_ParamGeoPoolGlobalVertexBuffer;
+        private int m_ParamGeoPoolGlobalIndexBuffer;
+        private int m_ParamGeoPoolGlobalMetadataBuffer;
+        private int m_ParamGeoPoolGlobalParams;
+
         private CommandBuffer m_CmdBuffer;
         private bool m_MustClearCmdBuffer;
         private int m_PendingCmds;
@@ -260,6 +265,10 @@ namespace UnityEngine.Rendering
             m_ParamOutputVB = Shader.PropertyToID("_OutputVB");
             m_ParamOutputGeoMetadataBuffer = Shader.PropertyToID("_OutputGeoMetadataBuffer");
 
+            m_ParamGeoPoolGlobalVertexBuffer = Shader.PropertyToID("_GeoPoolGlobalVertexBuffer");
+            m_ParamGeoPoolGlobalIndexBuffer = Shader.PropertyToID("_GeoPoolGlobalIndexBuffer");
+            m_ParamGeoPoolGlobalMetadataBuffer = Shader.PropertyToID("_GeoPoolGlobalMetadataBuffer");
+            m_ParamGeoPoolGlobalParams = Shader.PropertyToID("_GeoPoolGlobalParams");
         }
 
         private int CalcVertexCount() => DivUp(m_Desc.vertexPoolByteSize, GetVertexByteSize());
@@ -605,5 +614,27 @@ namespace UnityEngine.Rendering
             int groupCountsX = DivUp(location.block.count, 64);
             cmdBuffer.DispatchCompute(m_GeometryPoolKernelsCS, kernel, groupCountsX, 1, 1);
         }
+        private Vector4 GetPackedGeoPoolParam0()
+        {
+            return new Vector4(m_MaxVertCounts, 0.0f, 0.0f, 0.0f);
+        }
+
+        public void BindResources(CommandBuffer cmdBuffer, ComputeShader cs, int kernel)
+        {
+            cmdBuffer.SetComputeBufferParam(cs, kernel, m_ParamGeoPoolGlobalVertexBuffer, globalVertexBuffer);
+            cmdBuffer.SetComputeBufferParam(cs, kernel, m_ParamGeoPoolGlobalIndexBuffer, globalIndexBuffer);
+            cmdBuffer.SetComputeBufferParam(cs, kernel, m_ParamGeoPoolGlobalMetadataBuffer, globalMetadataBuffer);
+            cmdBuffer.SetComputeBufferParam(cs, kernel, m_ParamGeoPoolGlobalMetadataBuffer, globalMetadataBuffer);
+            cmdBuffer.SetComputeVectorParam(cs, m_ParamGeoPoolGlobalParams, GetPackedGeoPoolParam0());
+        }
+
+        public void BindResources(Material material)
+        {
+            material.SetBuffer(m_ParamGeoPoolGlobalVertexBuffer, globalVertexBuffer);
+            material.SetBuffer(m_ParamGeoPoolGlobalIndexBuffer, globalIndexBuffer);
+            material.SetBuffer(m_ParamGeoPoolGlobalMetadataBuffer, globalMetadataBuffer);
+            material.SetVector(m_ParamGeoPoolGlobalParams, GetPackedGeoPoolParam0());
+        }
     }
+
 }

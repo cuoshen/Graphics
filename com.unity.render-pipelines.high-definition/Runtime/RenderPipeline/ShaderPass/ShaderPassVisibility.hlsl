@@ -2,6 +2,7 @@
 #define VISIBILITY_PASS_HLSL
 
 
+#include "Packages/com.unity.render-pipelines.core/Runtime/GeometryPool/Resources/GeometryPool.hlsl"
 #include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/ShaderPass/VaryingMesh.hlsl"
 
 void ApplyVertexModification(AttributesMesh input, float3 normalWS, inout float3 positionRWS, float3 timeParameters)
@@ -37,6 +38,8 @@ struct VisibilityVtoP
     UNITY_VERTEX_OUTPUT_STEREO
 };
 
+#ifdef VISIBILITY_USE_ORIGINAL_MESH
+
 VisibilityVtoP Vert(AttributesMesh inputMesh)
 {
     VisibilityVtoP v2p;
@@ -44,27 +47,45 @@ VisibilityVtoP Vert(AttributesMesh inputMesh)
     UNITY_SETUP_INSTANCE_ID(inputMesh);
     UNITY_TRANSFER_INSTANCE_ID(inputMesh, v2p);
 
-    #ifdef VISIBILITY_USE_ORIGINAL_MESH
-
     VaryingsMeshToPS vmesh = VertMesh(inputMesh);
     v2p.pos = vmesh.positionCS;
 
-    #else
-
-    float2 coord = float2((input.vertId & 1) ? -0.2 : 0.2, (input.vertId & 2) ? 0.2 : -0.2);
-    v2p.pos = float4(coord.x, coord.y, 0, 1);
-
-    #endif
-
     return v2p;
 }
+
+#else
+
+struct VisibilityDrawInput
+{
+    uint vertexIndex : SV_VertexID;
+    UNITY_VERTEX_INPUT_INSTANCE_ID
+};
+
+VisibilityVtoP Vert(VisibilityDrawInput input)
+{
+    VisibilityVtoP v2p;
+
+    UNITY_SETUP_INSTANCE_ID(input);
+    UNITY_TRANSFER_INSTANCE_ID(input, v2p);
+
+    GeoPoolMetadataEntry metadata = _GeoPoolGlobalMetadataBuffer[(int)_VisBufferInstanceData.x];
+
+    GeometryPoolVertex vertexData;
+    GeometryPool::LoadVertex(input.vertexIndex, metadata, vertexData);
+
+    float3 worldPos = TransformObjectToWorld(vertexData.pos);
+    v2p.pos = TransformWorldToHClip(worldPos);
+    return v2p;
+}
+
+#endif
 
 void Frag(VisibilityVtoP packedInput, out float4 outVisibility : SV_Target0)
 {
     UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(packedInput);
     UNITY_SETUP_INSTANCE_ID(packedInput);
     #ifdef DOTS_INSTANCING_ON
-        outVisibility = _VisBufferInstanceData;
+        outVisibility = float4(0, 0, 1, 0);
     #else
         outVisibility = float4(1, 0, 0, 0);
     #endif

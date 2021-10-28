@@ -76,23 +76,22 @@ namespace UnityEngine.Rendering.HighDefinition
 
         internal void OnAddRenderersForVBuffer(AddRendererParameters parameters)
         {
-            var debugColors = new Vector4[]
-            {
-                new Vector4(0,0,1,1),
-                new Vector4(0,1,0,1),
-                new Vector4(1,0,0,1)
-            };
-
             for (int i = 0; i < parameters.addedRenderers.Count; ++i)
             {
                 AddedRendererInformation rendererInfo = parameters.addedRenderersInfo[i];
                 var meshFilter = rendererInfo.meshFilter;
 
                 //TODO handle out of memory case later.
-                m_GlobalGeoPool.Register(meshFilter.sharedMesh, out var _);
+                m_GlobalGeoPool.Register(meshFilter.sharedMesh, out GeometryPoolHandle geoHandle);
+
+                if (!geoHandle.valid)
+                {
+                    Debug.LogError("Could not register mesh to geometry pool" + meshFilter.sharedMesh.name);
+                    continue;
+                }
 
                 parameters.instanceBuffer[parameters.instanceBufferOffset + rendererInfo.instanceIndex] =
-                    debugColors[rendererInfo.instanceIndex % debugColors.Length];
+                    new Vector4(geoHandle.index, 0, 0, 0);
             }
 
             //Send to gpu immediately. Its possible we could defer these copy commands
@@ -151,6 +150,8 @@ namespace UnityEngine.Rendering.HighDefinition
                    renderGraph.CreateRendererList(CreateOpaqueRendererListDesc(
                         cull, hdCamera.camera,
                         HDShaderPassNames.s_VBufferName, m_CurrentRendererConfigurationBakedLighting, null, null, m_VisibilityMaterial, excludeObjectMotionVectors: false)));
+
+                m_GlobalGeoPool.BindResources(m_VisibilityMaterial);
 
                 builder.SetRenderFunc(
                     (VBufferPassData data, RenderGraphContext context) =>

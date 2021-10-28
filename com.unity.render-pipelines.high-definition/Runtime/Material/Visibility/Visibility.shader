@@ -63,6 +63,4 @@ Shader "HDRP/Visibility"
             ENDHLSL
         }
     }
-
-
 }

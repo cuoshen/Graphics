@@ -119,5 +119,5 @@ void MainUpdateVertexBuffer(uint3 dispatchThreadID : SV_DispatchThreadID)
     else
         vtx.T = float3(0, 0, 0);
 
-    StoreVertex(_OutputVBOffset + vertexOffset, vtx, _InputFlags, _OutputVBSize, _OutputVB);
+    GeometryPool::StoreVertex(_OutputVBOffset + vertexOffset, vtx, _InputFlags, _OutputVBSize, _OutputVB);
 }
