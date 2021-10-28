@@ -106,7 +106,8 @@ float SampleLuminance(float2 uv)
     }
     else
     {
-        float illuminance = SAMPLE_TEXTURE2D_X_LOD(_SourceTexture, s_linear_clamp_sampler, uv, 0.0).x;
+        const float brightness = 40.5f / 100.0f; // sRGB brightness for a 14% gray card
+        float illuminance = SAMPLE_TEXTURE2D_X_LOD(_SourceTexture, s_linear_clamp_sampler, uv, 0.0).x * brightness;
         // Get back luminance by assuming lambert shading
         return illuminance * INV_PI / prevExposure;
     }
