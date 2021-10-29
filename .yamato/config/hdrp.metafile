@@ -96,6 +96,7 @@ platforms:
       - name: Metal
         exclude_test_platforms:
           - name: editmode
+          - name: playmode
     build_configs:
       - name: mono
     color_spaces:

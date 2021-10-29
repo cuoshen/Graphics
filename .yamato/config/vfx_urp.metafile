@@ -112,6 +112,7 @@ platforms:
     apis:
       - name: Metal
         exclude_test_platforms:
+          - name: playmode
           - name: editmode
     build_configs:
       - name: mono
