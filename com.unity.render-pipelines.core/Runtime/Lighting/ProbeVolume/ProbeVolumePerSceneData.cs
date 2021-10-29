@@ -1,12 +1,4 @@
-using UnityEngine.Rendering;
-using UnityEngine.SceneManagement;
-using System.IO;
-using System;
 using System.Collections.Generic;
-
-#if UNITY_EDITOR
-using UnityEditor;
-#endif
 
 namespace UnityEngine.Experimental.Rendering
 {
@@ -29,9 +21,8 @@ namespace UnityEngine.Experimental.Rendering
             [SerializeField] public ProbeVolumeAsset asset;
         }
 
-        internal Dictionary<ProbeVolumeState, ProbeVolumeAsset> assets = new Dictionary<ProbeVolumeState, ProbeVolumeAsset>();
-
-        [SerializeField] List<SerializableAssetItem> serializedAssets;
+        internal Dictionary<ProbeVolumeState, ProbeVolumeAsset> assets = new();
+        [SerializeField] List<SerializableAssetItem> serializedAssets = new();
 
         ProbeVolumeState m_CurrentState = ProbeVolumeState.Default;
         ProbeVolumeState m_PreviousState = ProbeVolumeState.Invalid;
@@ -41,8 +32,6 @@ namespace UnityEngine.Experimental.Rendering
         /// </summary>
         public void OnAfterDeserialize()
         {
-            if (serializedAssets == null) return;
-
             assets = new Dictionary<ProbeVolumeState, ProbeVolumeAsset>();
             foreach (var assetItem in serializedAssets)
             {
@@ -55,8 +44,6 @@ namespace UnityEngine.Experimental.Rendering
         /// </summary>
         public void OnBeforeSerialize()
         {
-            if (assets == null || serializedAssets == null) return;
-
             serializedAssets.Clear();
             foreach (var k in assets.Keys)
             {
