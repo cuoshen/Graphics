@@ -35,7 +35,9 @@ namespace UnityEngine.Rendering.Universal
     /// </summary>
     public sealed class UniversalRenderer : ScriptableRenderer
     {
-        const DepthBits k_DepthStencilBufferBits = DepthBits.Depth32;
+        const GraphicsFormat k_DepthStencilFormat = GraphicsFormat.D32_SFloat_S8_UInt;
+        const int k_DepthBufferBits = 32;
+
         static readonly List<ShaderTagId> k_DepthNormalsOnly = new List<ShaderTagId> { new ShaderTagId("DepthNormalsOnly") };
 
         private static class Profiling
@@ -600,11 +602,22 @@ namespace UnityEngine.Rendering.Universal
             }
 
             // Allocate m_DepthTexture if used
-            if (this.actualRenderingMode == RenderingMode.Deferred || requiresDepthPrepass || requiresDepthCopyPass)
+            if ((this.actualRenderingMode == RenderingMode.Deferred && !this.useRenderPassEnabled)|| requiresDepthPrepass || requiresDepthCopyPass)
             {
                 var depthDescriptor = cameraTargetDescriptor;
-                depthDescriptor.colorFormat = RenderTextureFormat.Depth;
-                depthDescriptor.depthBufferBits = (int)k_DepthStencilBufferBits;
+                if (requiresDepthPrepass)
+                {
+                    depthDescriptor.graphicsFormat = GraphicsFormat.None;
+                    depthDescriptor.depthStencilFormat = k_DepthStencilFormat;
+                    depthDescriptor.depthBufferBits = k_DepthBufferBits;
+                }
+                else
+                {
+                    depthDescriptor.graphicsFormat = GraphicsFormat.R32_SFloat;
+                    depthDescriptor.depthStencilFormat = GraphicsFormat.None;
+                    depthDescriptor.depthBufferBits = 0;
+                }
+
                 depthDescriptor.msaaSamples = 1;// Depth-Only pass don't use MSAA
                 RenderingUtils.ReAllocateIfNeeded(ref m_DepthTexture, depthDescriptor, FilterMode.Point, wrapMode: TextureWrapMode.Clamp, name: "_CameraDepthTexture");
 
@@ -756,7 +769,9 @@ namespace UnityEngine.Rendering.Universal
             }
 
             // If a depth texture was created we necessarily need to copy it, otherwise we could have render it to a renderbuffer.
-            if (requiresDepthCopyPass)
+            // Also skip if Deferred+RenderPass as CameraDepthTexture is used and filled by the GBufferPass
+            // however we might need the depth texture with Forward-only pass rendered to it, so enable the copy depth in that case
+            if (requiresDepthCopyPass && !(this.actualRenderingMode == RenderingMode.Deferred && useRenderPassEnabled && !renderPassInputs.requiresDepthTexture))
             {
                 m_CopyDepthPass.Setup(m_ActiveCameraDepthAttachment, m_DepthTexture);
                 EnqueuePass(m_CopyDepthPass);
@@ -898,6 +913,8 @@ namespace UnityEngine.Rendering.Universal
                     if (!depthTargetResolved && cameraData.xr.copyDepth)
                     {
                         m_XRCopyDepthPass.Setup(m_ActiveCameraDepthAttachment, m_XRTargetHandleAlias);
+                        m_XRCopyDepthPass.CopyToDepth = true;
+
                         EnqueuePass(m_XRCopyDepthPass);
                     }
                 }
@@ -916,6 +933,7 @@ namespace UnityEngine.Rendering.Universal
                 // Scene view camera should always resolve target (not stacked)
                 Assertions.Assert.IsTrue(lastCameraInTheStack, "Editor camera must resolve target upon finish rendering.");
                 m_FinalDepthCopyPass.Setup(m_DepthTexture, k_CameraTarget);
+                m_FinalDepthCopyPass.CopyToDepth = true;
                 m_FinalDepthCopyPass.MssaSamples = 0;
                 EnqueuePass(m_FinalDepthCopyPass);
             }
@@ -1079,8 +1097,8 @@ namespace UnityEngine.Rendering.Universal
                     if (depthDescriptor.msaaSamples > 1 && RenderingUtils.MultisampleDepthResolveSupported(useRenderPassEnabled) && m_CopyDepthMode == CopyDepthMode.AfterTransparents)
                         depthDescriptor.bindMS = false;
 
-                    depthDescriptor.colorFormat = RenderTextureFormat.Depth;
-                    depthDescriptor.depthBufferBits = (int)k_DepthStencilBufferBits;
+                    depthDescriptor.graphicsFormat = GraphicsFormat.None;
+                    depthDescriptor.depthStencilFormat = k_DepthStencilFormat;
                     RenderingUtils.ReAllocateIfNeeded(ref m_CameraDepthAttachment, depthDescriptor, FilterMode.Point, TextureWrapMode.Clamp, name: "_CameraDepthAttachment");
                     cmd.SetGlobalTexture(m_CameraDepthAttachment.name, m_CameraDepthAttachment.nameID);
                 }

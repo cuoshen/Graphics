@@ -461,51 +461,51 @@ namespace UnityEngine.Rendering
 
             // We need to handle this in an explicit way since GraphicsFormat does not expose depth formats. TODO: Get rid of this branch once GraphicsFormat'll expose depth related formats
             RenderTexture rt;
-            if (isShadowMap || depthBufferBits != DepthBits.None)
+            var depthFormat = GraphicsFormat.None;
+            if (!isShadowMap && depthBufferBits > 0)
             {
-                RenderTextureFormat format = isShadowMap ? RenderTextureFormat.Shadowmap : RenderTextureFormat.Depth;
-                rt = new RenderTexture(width, height, (int)depthBufferBits, format, RenderTextureReadWrite.Linear)
+                colorFormat = GraphicsFormat.None;
+                switch (depthBufferBits)
                 {
-                    hideFlags = HideFlags.HideAndDontSave,
-                    volumeDepth = slices,
-                    filterMode = filterMode,
-                    wrapMode = wrapMode,
-                    dimension = dimension,
-                    enableRandomWrite = enableRandomWrite,
-                    useMipMap = useMipMap,
-                    autoGenerateMips = autoGenerateMips,
-                    anisoLevel = anisoLevel,
-                    mipMapBias = mipMapBias,
-                    antiAliasing = (int)msaaSamples,
-                    bindTextureMS = bindTextureMS,
-                    useDynamicScale = m_HardwareDynamicResRequested && useDynamicScale,
-                    memorylessMode = memoryless,
-                    vrUsage = vrUsage,
-                    name = CoreUtils.GetRenderTargetAutoName(width, height, slices, format, name, mips: useMipMap, enableMSAA: enableMSAA, msaaSamples: msaaSamples)
-                };
+                    case DepthBits.Depth16:
+                        depthFormat = GraphicsFormat.D16_UNorm;
+                        break;
+                    case DepthBits.Depth24:
+                        depthFormat = GraphicsFormat.D24_UNorm_S8_UInt;
+                        break;
+                    case DepthBits.Depth32:
+                        depthFormat = GraphicsFormat.D32_SFloat_S8_UInt;
+                        break;
+                }
             }
-            else
+
+            var descriptor = new RenderTextureDescriptor(width, height, colorFormat, depthFormat);
+
+            if (isShadowMap)
             {
-                rt = new RenderTexture(width, height, (int)depthBufferBits, colorFormat)
-                {
-                    hideFlags = HideFlags.HideAndDontSave,
-                    volumeDepth = slices,
-                    filterMode = filterMode,
-                    wrapMode = wrapMode,
-                    dimension = dimension,
-                    enableRandomWrite = enableRandomWrite,
-                    useMipMap = useMipMap,
-                    autoGenerateMips = autoGenerateMips,
-                    anisoLevel = anisoLevel,
-                    mipMapBias = mipMapBias,
-                    antiAliasing = (int)msaaSamples,
-                    bindTextureMS = bindTextureMS,
-                    useDynamicScale = m_HardwareDynamicResRequested && useDynamicScale,
-                    memorylessMode = memoryless,
-                    vrUsage = vrUsage,
-                    name = CoreUtils.GetRenderTargetAutoName(width, height, slices, colorFormat, dimension, name, mips: useMipMap, enableMSAA: enableMSAA, msaaSamples: msaaSamples, dynamicRes: useDynamicScale)
-                };
-            }
+                descriptor.depthStencilFormat = SystemInfo.GetGraphicsFormat(DefaultFormat.Shadow);
+                descriptor.shadowSamplingMode = ShadowSamplingMode.CompareDepths;
+            };
+
+            rt = new RenderTexture(descriptor)
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+                volumeDepth = slices,
+                filterMode = filterMode,
+                wrapMode = wrapMode,
+                dimension = dimension,
+                enableRandomWrite = enableRandomWrite,
+                useMipMap = useMipMap,
+                autoGenerateMips = autoGenerateMips,
+                anisoLevel = anisoLevel,
+                mipMapBias = mipMapBias,
+                antiAliasing = (int)msaaSamples,
+                bindTextureMS = bindTextureMS,
+                useDynamicScale = m_HardwareDynamicResRequested && useDynamicScale,
+                memorylessMode = memoryless,
+                vrUsage = vrUsage,
+                name = CoreUtils.GetRenderTargetAutoName(width, height, slices, colorFormat, dimension, name, mips: useMipMap, enableMSAA: enableMSAA, msaaSamples: msaaSamples, dynamicRes: useDynamicScale)
+            };
 
             rt.Create();
 

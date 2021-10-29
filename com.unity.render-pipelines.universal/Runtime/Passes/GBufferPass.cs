@@ -66,6 +66,13 @@ namespace UnityEngine.Rendering.Universal.Internal
 
             if (cmd != null)
             {
+                var allocateGbufferDepth = true;
+                if (m_DeferredLights.UseRenderPass && (m_DeferredLights.DepthCopyTexture != null && m_DeferredLights.DepthCopyTexture.rt != null))
+                {
+                    m_DeferredLights.GbufferAttachments[m_DeferredLights.GbufferDepthIndex] = m_DeferredLights.DepthCopyTexture;
+                    m_DeferredLights.GbufferAttachmentIdentifiers[m_DeferredLights.GbufferDepthIndex] = m_DeferredLights.DepthCopyTexture;
+                    allocateGbufferDepth = false;
+                }
                 // Create and declare the render targets used in the pass
                 for (int i = 0; i < gbufferAttachments.Length; ++i)
                 {
@@ -78,8 +85,11 @@ namespace UnityEngine.Rendering.Universal.Internal
                     if (i == m_DeferredLights.GBufferNormalSmoothnessIndex && m_DeferredLights.HasNormalPrepass)
                         continue;
 
+                    if (i == m_DeferredLights.GbufferDepthIndex && !allocateGbufferDepth)
+                        continue;
+
                     // No need to setup temporaryRTs if we are using input attachments as they will be Memoryless
-                    if (m_DeferredLights.UseRenderPass && i != m_DeferredLights.GBufferShadowMask && i != m_DeferredLights.GBufferRenderingLayers)
+                    if (m_DeferredLights.UseRenderPass && i != m_DeferredLights.GBufferShadowMask && i != m_DeferredLights.GBufferRenderingLayers && (i != m_DeferredLights.GbufferDepthIndex && !m_DeferredLights.HasDepthPrepass))
                         continue;
 
                     RenderTextureDescriptor gbufferSlice = cameraTextureDescriptor;
@@ -91,6 +101,8 @@ namespace UnityEngine.Rendering.Universal.Internal
                 }
             }
 
+            if (m_DeferredLights.UseRenderPass)
+                m_DeferredLights.UpdateDeferredInputAttachments(); // as this is not reference based anymore, we need to reupdate the array with up-to-date info after allocating
             ConfigureTarget(m_DeferredLights.GbufferAttachments, m_DeferredLights.DepthAttachment, m_DeferredLights.GbufferFormats);
 
             // We must explicitly specify we don't want any clear to avoid unwanted side-effects.

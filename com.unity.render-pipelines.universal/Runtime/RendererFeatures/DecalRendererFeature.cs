@@ -392,7 +392,10 @@ namespace UnityEngine.Rendering.Universal
                     m_ForwardEmissivePass = new DecalForwardEmissivePass(m_DecalDrawForwardEmissiveSystem);
 
                     if (universalRenderer.actualRenderingMode == RenderingMode.Deferred)
+                    {
                         m_DBufferRenderPass.deferredLights = universalRenderer.deferredLights;
+                        m_DBufferRenderPass.deferredLights.DisableFramebufferFetchInput();
+                    }
                     break;
             }
 
@@ -466,6 +469,11 @@ namespace UnityEngine.Rendering.Universal
             }
         }
 
+        internal override bool SupportsNativeRenderPass()
+        {
+            return m_Technique == DecalTechnique.GBuffer || m_Technique == DecalTechnique.ScreenSpace;
+        }
+
         public override void SetupRenderPasses(ScriptableRenderer renderer, in RenderingData renderingData)
         {
             if (m_Technique == DecalTechnique.DBuffer)
@@ -477,11 +485,20 @@ namespace UnityEngine.Rendering.Universal
                         universalRenderer.m_DepthTexture
                     );
                 else
+                {
                     m_CopyDepthPass.Setup(
                         universalRenderer.m_DepthTexture,
                         m_DBufferRenderPass.dBufferColorHandle
                     );
+                    m_CopyDepthPass.CopyToDepth = true;
+                }
+
                 m_CopyDepthPass.MssaSamples = 1;
+            }
+            else if (m_Technique == DecalTechnique.GBuffer && m_DeferredLights.UseRenderPass)
+            {
+                // Need to call Configure for both of these passes to setup input attachments as first frame otherwise will raise errors
+                m_GBufferRenderPass.Configure(null, renderingData.cameraData.cameraTargetDescriptor);
             }
         }
 
