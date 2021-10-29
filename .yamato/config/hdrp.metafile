@@ -91,6 +91,15 @@ platforms:
         type: Unity::VM::GPU
         image: package-ci/ubuntu:stable
         flavor: b1.large
+  - name: OSX_Apple_Silicon
+    apis:
+      - name: Metal
+        exclude_test_platforms:
+          - name: editmode
+    build_configs:
+      - name: mono
+    color_spaces:
+      - Linear
 
 jobs:
   - name: PR <PROJECT_NAME>
